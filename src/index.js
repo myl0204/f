@@ -22,7 +22,7 @@ import {
   SafeAreaView
 } from 'react-native';
 import ViewPager from './ViewPager';
-import BigImage from './BigImage';
+import BigImage, { Progress, TransformImage } from './BigImage';
 import PropTypes from 'prop-types';
 // import DeviceInfo from 'react-native-device-info';
 // import DLShareModule from '@ecool/react-native-sharelib';
@@ -40,18 +40,31 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const MOVE_THRESHOLD = 2;
 const SCROLL_STATUS_SCROLLING = 'scrolling';
 
+const GALLERY_SHOW_STATUS_NONE = 0;
+const GALLERY_SHOW_STATUS_ANIMATING = 1;
+const GALLERY_SHOW_STATUS_ANIMATED = 2;
+const GALLERY_SHOW_STATUS_ANIMATED_BOUNCE = 3;
+const GALLERY_SHOW_STATUS_SHOW_ALL = 4;
+
+
+
 export default class ImageGallery extends PureComponent {
     static propTypes = {
         // 图片源
         urls: PropTypes.oneOfType([
-            PropTypes.number,
-            PropTypes.string,
+            // PropTypes.number,
+            // PropTypes.string,
             PropTypes.arrayOf(function(prop, key, componentName, location, propFullName) {
                 if (!(typeof prop[key] === 'number' || typeof prop[key] === 'string')) {
                     return new Error(`Invalid prop "${propFullName}" supplied to "${componentName}". Item in array should be string or number`);
                 }
             })
         ]).isRequired,
+        thumbnailUrls: PropTypes.arrayOf(function(prop, key, componentName, location, propFullName) {
+            if (!(typeof prop[key] === 'number' || typeof prop[key] === 'string')) {
+                return new Error(`Invalid prop "${propFullName}" supplied to "${componentName}". Item in array should be string or number`);
+            }
+        }),
         // 缩略图
         source: PropTypes.oneOfType([
             PropTypes.number,
@@ -96,24 +109,33 @@ export default class ImageGallery extends PureComponent {
 
     constructor(props) {
         super(props);
-        const { urls, initialIndex } = this.props;
-        const _source = Array.isArray(urls) ? urls.map(uri => ({uri, selected: false})) : [{uri: urls, selected: false}];
+        const { urls, thumbnailUrls, initialIndex } = this.props;
+        let _urls = thumbnailUrls;
+        if (!Array.isArray(thumbnailUrls)) {
+            _urls = urls;
+        }
+        const _source = _urls.map(uri => ({uri, selected: false}));
         const initialImage = initialIndex + 1 <= urls.length
             ? initialIndex < 0
                 ? 0
                 : initialIndex
             : 0;
+
         this.state = {
-            width: new Animated.Value(0),
-            height: new Animated.Value(0),
-            offsetX: new Animated.Value(SCREEN_WIDTH / 2),
-            offsetY: new Animated.Value(SCREEN_HEIGHT / 2),
+            imageScale: new Animated.Value(1),
+            containerScale: new Animated.Value(1),
+            width: new Animated.Value(SCREEN_WIDTH),
+            height: new Animated.Value(SCREEN_HEIGHT),
+            thumbnailOffset: new Animated.ValueXY(),
+            offsetX: new Animated.Value(0),
+            offsetY: new Animated.Value(0),
             opacity: new Animated.Value(0),
             imageOpacity: new Animated.Value(1),
             thumbnailTop: new Animated.Value(SCREEN_HEIGHT),
             thumbnailOpacity: new Animated.Value(0),
             isVisible: false, // 
-            showStatus: false, // 是否处于大图模式，且动画已执行完毕。
+            showStatus: GALLERY_SHOW_STATUS_NONE, // 是否处于大图模式，且动画已执行完毕。
+            thumbnailImageShowStatus: false, // 占位图
             position: 'absolute', // 图片容器的position
             scrollContainerBg: 'transparent',
             initialImage,
@@ -124,14 +146,22 @@ export default class ImageGallery extends PureComponent {
             isThumbnailVisible: false,
             editable: false, // 是否可选择缩略图
             resizeMode: 'contain',
+            // thumbnailResizeMode: 'cover',
             isGalleryAvailable: false, // 大图模式是否可用
-            staticUri: {} // 静态图的uri
+            staticUri: {}, // 静态图的uri
+            progress: 0
         };
     }
 
     firstMove = true;
 
     handle = null;
+
+    containerScale = 1;
+
+    imageScale = 1;
+
+    isInitialImageLoaded = false;
 
     componentDidMount() {
         const { withoutStaticImage, urls, source } = this.props;
@@ -271,13 +301,14 @@ export default class ImageGallery extends PureComponent {
 
     shouldActiveViewPagerResponder = (evt, gestureState) => {
         const currentBigImage = this.getCurrentBigImageInstance();
-        const { currentImage, source } = this.state;
+        const { currentImage } = this.state;
+        const { urls } = this.props;
         if (gestureState.numberActiveTouches > 1 || !currentBigImage) return false;
         const range = currentBigImage.getHorizontalRange();
         if (gestureState.dx > 0 && range.left <= 0 && currentImage > 0) {
             return true;
         }
-        if (gestureState.dx < 0 && range.right <= 0 && currentImage < source.length - 1) {
+        if (gestureState.dx < 0 && range.right <= 0 && currentImage < urls.length - 1) {
             return true;
         }
         return false;
@@ -304,18 +335,28 @@ export default class ImageGallery extends PureComponent {
      */
 
     resetState = () => {
-        const { initialImage } = this.state;
-        const { urls: source, initialPage } = this.props;
-        const _source = Array.isArray(source) ? source.map(uri => ({uri, selected: false})) : [{uri: source, selected: false}];
+        const { initialImage, source } = this.state;
+        const { initialPage } = this.props;
+        const _source = source.map(uri => ({uri, selected: false}));
         this.setState(prev => ({
             renderedImages: [initialImage],
             currentImage: initialImage,
             source: _source,
             imageOpacity: new Animated.Value(1),
             position: 'absolute',
-            showStatus: false,
-            resizeMode: 'contain'
+            showStatus: GALLERY_SHOW_STATUS_NONE,
+            resizeMode: 'contain',
+            progress: 0
         }));
+        this.state.offsetX.setValue(0);
+        this.state.offsetY.setValue(0);
+        this.state.width.setValue(SCREEN_WIDTH);
+        this.state.height.setValue(SCREEN_HEIGHT);
+        this.state.thumbnailOffset.setValue({x: 0, y: 0})
+        this.state.containerScale.setValue(1);
+        this.isInitialImageLoaded = false;
+        this.imageRefs.clear();
+        this.imageSizes = [];
     }
 
     show = async () => {
@@ -336,44 +377,58 @@ export default class ImageGallery extends PureComponent {
      */
 
     showImage = () => {
-        this.setState({resizeMode: 'contain'});
+        // console.log(this.state.thumbnailOffset.__getValue(), '小图偏移');
+        // console.log(this.state.containerScale.__getValue(), '初始缩放');
+        // console.log(this.containerScale, '目标缩放');
         const width = SCREEN_WIDTH;
         const height = SCREEN_HEIGHT;
         const { transitionDuration } = this.props;
         const _transitionDuration = Platform.select({ios: transitionDuration, android: 0});
+        // const _transitionDuration = 5000;
         this.state.opacity.setValue(0.5);
-        Animated.parallel([
-            Animated.timing(this.state.width, {
-                toValue: width,
-                duration: _transitionDuration,
-                easing: Easing.bezier(.19, .88, .72, 1)
-            }),
-            Animated.timing(this.state.height, {
-                toValue: height,
-                duration: _transitionDuration,
-                easing: Easing.bezier(.19, .88, .72, 1)
-            }),
-            Animated.timing(this.state.opacity, {
-                toValue: 1,
-                duration: _transitionDuration,
-                easing: Easing.bezier(.19, .88, .72, 1)
-            }),
-            // Animated.timing(this.state.imageOpacity, {
-            //     toValue: 1,
-            //     duration: _transitionDuration,
-            //     easing: Easing.bezier(0,.34,.59,.97)
-            // }),
-            Animated.timing(this.state.offsetX, {
-                toValue: 0,
-                duration: _transitionDuration,
-                easing: Easing.bezier(.19, .88, .72, 1)
-            }),
-            Animated.timing(this.state.offsetY, {
-                toValue: 0,
-                duration: _transitionDuration,
-                easing: Easing.bezier(.19, .88, .72, 1)
-            })
-        ]).start(this.afterShowImage);
+        this.setState({thumbnailImageShowStatus: true, showStatus: GALLERY_SHOW_STATUS_ANIMATING}, () => {
+            Animated.parallel([
+                Animated.timing(this.state.containerScale, {
+                    toValue: this.containerScale,
+                    duration: _transitionDuration,
+                    easing: Easing.bezier(.19, .88, .72, 1)
+                }),
+                Animated.timing(this.state.opacity, {
+                    toValue: 1,
+                    duration: _transitionDuration,
+                    easing: Easing.bezier(.19, .88, .72, 1)
+                }),
+                Animated.timing(this.state.thumbnailOffset, {
+                    toValue: {
+                        x: (this.containerScale - 1) * (this.initialWidth / 2),
+                        y: SCREEN_HEIGHT / 2 - (this.initialHeight / 2)
+                    },
+                    duration: _transitionDuration,
+                    easing: Easing.bezier(.19, .88, .72, 1)
+                })
+                // Animated.timing(this.state.offsetX, {
+                //     toValue: (this.containerScale - 1) * (this.initialWidth / 2),
+                //     duration: _transitionDuration,
+                //     easing: Easing.bezier(.19, .88, .72, 1)
+                // }),
+                // Animated.timing(this.state.offsetY, {
+                //     toValue: SCREEN_HEIGHT / 2 - (this.initialHeight / 2),
+                //     duration: _transitionDuration,
+                //     easing: Easing.bezier(.19, .88, .72, 1)
+                // })
+            ]).start(() => {
+                // this.state.width.setValue(SCREEN_WIDTH);
+                // this.state.height.setValue(SCREEN_HEIGHT);
+                // this.state.offsetX.setValue(0);
+                // this.state.offsetY.setValue(0);
+                this.setState({showStatus: GALLERY_SHOW_STATUS_ANIMATED}, () => {
+                    if (this.isInitialImageLoaded) {
+                        // console.log('after animation');
+                        this.afterShowImage();
+                    }
+                })
+            });
+        })
     }
 
     /**
@@ -382,12 +437,27 @@ export default class ImageGallery extends PureComponent {
      */
 
     afterShowImage = () => {
-        this.setState(prev => ({
-            showStatus: true,
-            position: 'relative',
-            scrollContainerBg: 'black',
-            resizeMode: 'center'
-        }), () => this.setState({resizeMode: 'contain'}));
+        // console.log('i am afterShowImage')
+        // this.setState({thumbnailImageShowStatus: false})
+        // this.state.offsetY.setValue((SCREEN_HEIGHT - height) / 2);
+        this.setState({thumbnailImageShowStatus: false, showStatus: 3}, () => {
+            this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
+            // Animated.spring(this.state.imageScale, {
+            //     toValue: 1,
+            // }).start(() => {
+            //     this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
+            // })
+            // this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
+        })
+        
+
+        // this.setState({showStatus: 4})
+        // this.setState(prev => ({
+        //     showStatus: GALLERY_SHOW_STATUS_SHOW_ALL,
+        //     position: 'relative',
+        //     scrollContainerBg: 'black',
+        //     resizeMode: 'contain'
+        // }));
     }
 
     /**
@@ -395,34 +465,26 @@ export default class ImageGallery extends PureComponent {
      * 动画分为回到原位置和消失在中点。
      */
 
-    hideImage = () => {
+    hideImage = async () => {
+        await this.getPosition('hide')
         const index = this.state.currentImage;
         const { initialImage } = this.state;
         const { transitionDuration, withoutStaticImage } = this.props;
-        if (this.state.showStatus) {
+        if (this.state.showStatus === GALLERY_SHOW_STATUS_SHOW_ALL) {
             let widthValue, heightValue, offsetXValue, offsetYValue;
             //     
-            if (index === initialImage && this.props.smallImage || this.smallImage) {
-                widthValue = this.initialWidth;
-                heightValue = this.initialHeight;
-                offsetXValue = this.initialOffsetX;
-                // offsetYValue = Platform.select({ios: this.initialOffsetY, android: this.initialOffsetY - (SCREEN_HEIGHT - this.initialHeight) / 2});
-                offsetYValue = Platform.select({android: this.initialOffsetY - StatusBar.currentHeight, ios: this.initialOffsetY});
-            } else {
-                widthValue = 0;
-                heightValue = 0;
-                // offsetXValue = (SCREEN_WIDTH + this.initialWidth) / 2;
-                offsetXValue = SCREEN_WIDTH / 2; // for ios
-                // offsetYValue = Platform.select({ios: (SCREEN_HEIGHT - this.initialHeight) / 2, android: 0});
-                offsetYValue = (SCREEN_HEIGHT - this.initialHeight) / 2;
-            }
+            widthValue = this.initialWidth;
+            heightValue = this.initialHeight;
+            offsetXValue = this.initialOffsetX;
+            // offsetYValue = Platform.select({ios: this.initialOffsetY, android: this.initialOffsetY - (SCREEN_HEIGHT - this.initialHeight) / 2});
+            offsetYValue = Platform.select({android: this.initialOffsetY - StatusBar.currentHeight, ios: this.initialOffsetY});
 
             //
             this.setState(prev => ({
-                showStatus: false,
+                showStatus: GALLERY_SHOW_STATUS_NONE,
                 position: 'relative',
                 scrollContainerBg: 'transparent',
-                source: [prev.source[index]] // 清空其他图片是为了防止动画过程中出现干扰。
+                // source: [prev.source[index]] // 清空其他图片是为了防止动画过程中出现干扰。
             }), () => {
                 this.scrollInstance.updateContentOffset({offset: 0, animated: false});
                 Animated.parallel([
@@ -480,30 +542,45 @@ export default class ImageGallery extends PureComponent {
     }
 
     /**
+     *  小图缩放后加载大图时的loading
+     */
+
+    onProgress = (progress) => {
+        this.setState({progress})
+    }
+
+    /**
      * 获取静态图的位置信息
      */
 
-    getPosition(offsetY) {
+    getPosition(timing = 'show') {
         return new Promise((resolve, reject) => {
-            const smallImageInstance = this.props.withoutStaticImage
-                ? this.props.smallImage
+            const { withoutStaticImage, getImageInstance, smallImage } = this.props;
+            const { currentImage } = this.state;
+            const smallImageInstance = withoutStaticImage
+                ? getImageInstance().get(currentImage)
                 : this.smallImage;
-
             if (smallImageInstance) {
                 smallImageInstance.measure((fx, fy, width, height, px, py) => {
                     this.initialWidth = width;
                     this.initialHeight = height;
                     this.initialOffsetX = px;
                     this.initialOffsetY = py;
-                    this.setState(
-                        {
-                            offsetX: new Animated.Value(px),
-                            offsetY: new Animated.Value(py),
-                            width: new Animated.Value(width),
-                            height: new Animated.Value(height)
-                        },
-                        resolve()
-                    );
+                    this.containerScale = SCREEN_WIDTH / this.initialWidth;
+                    if (timing === 'show') {
+                        this.state.thumbnailOffset.setValue({x: px, y: py}); // for show
+                    } 
+                    resolve();
+                    // this.state.width.
+                    // this.setState(
+                    //     {
+                    //         offsetX: new Animated.Value(px),
+                    //         offsetY: new Animated.Value(py),
+                    //         width: new Animated.Value(width),
+                    //         height: new Animated.Value(height)
+                    //     },
+                    //     () => resolve()
+                    // );
                 });
             } else {
                 this.initialWidth = 0;
@@ -555,8 +632,8 @@ export default class ImageGallery extends PureComponent {
     }
 
     showThumbnail = () => {
-        if (!this.isThumbnailVisible) {
-            this.isThumbnailVisible = true;
+        if (!this.state.isThumbnailVisible) {
+            this.setState({isThumbnailVisible: true})
             this.state.thumbnailTop.setValue(90);
             this.state.thumbnailOpacity.setValue(0.1);
             Animated.parallel([
@@ -575,7 +652,7 @@ export default class ImageGallery extends PureComponent {
     }
 
     hideThumbnail = () => {
-        if (this.isThumbnailVisible) {
+        if (this.state.isThumbnailVisible) {
             Animated.parallel([
                 Animated.timing(this.state.thumbnailTop, {
                     toValue: 120,
@@ -588,7 +665,7 @@ export default class ImageGallery extends PureComponent {
                     easing: Easing.bezier(.19,.4,.99,.64)
                 }),
             ]).start(() => {
-                this.isThumbnailVisible = false;
+                this.setState({isThumbnailVisible: false})
                 this.state.thumbnailTop.setValue(SCREEN_HEIGHT);
                 this.state.thumbnailOpacity.setValue(0);
             });
@@ -628,8 +705,8 @@ export default class ImageGallery extends PureComponent {
 
     // 切换并重置编辑状态
     toggleEditState = () => {
-        const { urls: source } = this.props;
-        const _source = Array.isArray(source) ? source.map(uri => ({uri, selected: false})) : [{uri: source, selected: false}];
+        const { source } = this.state;
+        const _source = source.map(uri => ({uri, selected: false}));
         this.setState((prev) => ({editable: !prev.editable, source: _source}));
     }
 
@@ -697,6 +774,40 @@ export default class ImageGallery extends PureComponent {
 
     imageRefs = new Map();
 
+    imageSizes = [];
+
+    onInitialImageLoad = (nativeEvent, index) => {
+        this.isInitialImageLoaded = true;
+        this.initImageSize(nativeEvent, index);
+    }
+
+    initImageSize = (nativeEvent, index) => {
+        // const {width, height} = this.getCurrentBigImageInstance().getImageSize();
+        const {width, height} = nativeEvent.source; // 原生组件在source里。
+        // console.log(width, height, '宽高')
+        this.width = width;
+        this.height = height;
+        this.aspectRatio = width / height;
+        // if (this.aspectRatio < SCREEN_ASPECT_RATIO) {
+        //     this.setInitialScale();
+        // }
+        const ratioW = width / SCREEN_WIDTH;
+        const ratioH = height / SCREEN_HEIGHT;
+
+        // this.containerScale = SCREEN_WIDTH / this.initialWidth;
+        // this.containerScale = SCREEN_HEIGHT / this.initialHeight;
+        // console.warn(this.aspectRatio, 'this.aspectRatio')
+        // 容器宽高比为1的情况下
+        this.imageScale = this.aspectRatio < 1
+            ? 1 / this.aspectRatio
+            : this.aspectRatio;
+
+        // console.log('setImageScale', this.imageScale);
+        this.state.imageScale.setValue(this.imageScale);
+
+        this.imageSizes[index] = {width, height, aspectRatio: this.aspectRatio, imageScale: this.imageScale}
+    }
+
     /**
      * 渲染gallery图片
      */
@@ -713,18 +824,18 @@ export default class ImageGallery extends PureComponent {
             showStatus,
             initialImage,
             currentImage,
-            source,
             resizeMode,
-            imageOpacity
+            imageOpacity,
+            imageScale
         } = this.state;
-        const { lazyLoad } = this.props;
+        const { lazyLoad, urls } = this.props;
         const targetUri = lazyLoad
             ? renderedImages.includes(index)
                 ? sourceImage.uri
                 : 'data:'
             : sourceImage.uri;
 
-        if (showStatus || index === initialImage || source.length === 1) {
+        if (showStatus === GALLERY_SHOW_STATUS_SHOW_ALL || index === initialImage || urls.length === 1) {
             return (
                 <BigImage
                     resizeMode={resizeMode}
@@ -741,6 +852,12 @@ export default class ImageGallery extends PureComponent {
                     createAnimation={this.createAnimation}
                     clearAnimation={this.clearAnimation}
                     ref={view => {this.imageRefs.set(index, view);}}
+                    afterShowImage={this.afterShowImage}
+                    onLoad={this.onInitialImageLoad}
+                    imageScale={imageScale}
+                    index={index}
+                    onProgress={this.onProgress}
+                    // initImageSize={this.initImageSize}
                 />
             )
         } else {
@@ -774,10 +891,11 @@ export default class ImageGallery extends PureComponent {
     
     renderScrollView = () => {
        
-        const { currentImage, source, opacity, scrollContainerBg, showStatus, initialImage } = this.state;
-        const panHandlers = showStatus ? this._panResponder.panHandlers : {};
+        const { currentImage, opacity, scrollContainerBg, showStatus, initialImage, thumbnailImageShowStatus } = this.state;
+        // const panHandlers = showStatus > GALLERY_SHOW_STATUS_ANIMATING ? this._panResponder.panHandlers : {};
         // const contentOffset = this.getInitialOffset();
-
+        const { initialIndex } = this.props;
+        const _source = this.props.urls.map(uri => ({uri}));
         return (
             <View
                 style={{width: SCREEN_WIDTH, height: SCREEN_HEIGHT}}
@@ -786,8 +904,8 @@ export default class ImageGallery extends PureComponent {
                 <ViewPager
                     showStatus={showStatus}
                     currentImage={currentImage}
-                    source={source}
-                    initialIndex={initialImage}
+                    source={_source}
+                    initialIndex={initialIndex}
                     opacity={opacity}
                     ref={view => this.scrollInstance = view}
                     scrollContainerBg={scrollContainerBg}
@@ -795,21 +913,69 @@ export default class ImageGallery extends PureComponent {
                     onScrollEnd={this.onScrollEnd}
                     imageRefs={this.imageRefs}
                 >
-                    {showStatus && this.renderIndicator()}
-                    {showStatus && this.renderGirdButton()}
+                    {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && this.renderIndicator()}
+                    {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && this.renderGirdButton()}
                     {/* 设置一层View，用以接收ViewPager相关panHandler */}
-                    {showStatus && <View style={{width: SCREEN_WIDTH, height: SCREEN_HEIGHT, position: 'absolute', zIndex: 20, top: 0, left: 0, opacity: 0, backgroundColor: 'transparent'}}/>}
+                    {/* {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && <View style={{width: SCREEN_WIDTH, height: SCREEN_HEIGHT, position: 'absolute', zIndex: 20, top: 0, left: 0, opacity: 0, backgroundColor: 'transparent'}}/>} */}
+                    {/* {showStatus } */}
+                    {thumbnailImageShowStatus && this.renderAnimatedThumbnail()}
                 </ViewPager>
             </View>
         );
     }
 
+    renderAnimatedThumbnail = () => {
+        const {
+            position,
+            opacity,
+            renderedImages,
+            showStatus,
+            initialImage,
+            currentImage,
+            imageOpacity,
+            imageScale,
+            containerScale,
+            thumbnailOffset
+        } = this.state;
+
+        const { thumbnailUrls, initialIndex } = this.props;
+
+        const targetUri = thumbnailUrls[initialIndex];
+
+        return (
+            <View style={{position: 'absolute', top: 0, left: 0, width: SCREEN_WIDTH, height: SCREEN_HEIGHT, zIndex: 100}}>
+                <TransformImage
+                    resizeMode={'cover'}
+                    position={position}
+                    width={this.initialWidth}
+                    height={this.initialHeight}
+                    // offsetX={offsetX}
+                    // offsetY={offsetY}
+                    opacity={opacity}
+                    imageOpacity={imageOpacity}
+                    targetUri={targetUri}
+                    imageScale={imageScale}
+                    containerScale={containerScale}
+                    offset={thumbnailOffset}
+                />
+                {showStatus === 2 && this.renderProgress()}
+                {/* {showStatus === 2 && <Progress progress={this.state.progress}/>} */}
+            </View>
+        )
+    }
+
+    renderProgress = () => {
+        const { progress } = this.state;
+        return progress !== 100 && <Progress progress={progress}/>
+    }
+
 
     renderIndicator = () => {
-        const { currentImage, source } = this.state;
+        const { currentImage } = this.state;
+        const { urls } = this.props;
         return (
             <View style={styles.indicatorContainer}>
-                <Text style={styles.indicator}>{`${currentImage + 1} / ${source.length}`}</Text>
+                <Text style={styles.indicator}>{`${currentImage + 1} / ${urls.length}`}</Text>
             </View>
         );
     }
@@ -929,7 +1095,7 @@ export default class ImageGallery extends PureComponent {
         return (
             <Modal isVisible={this.state.isVisible} transparent={true}>
                 {this.renderScrollView()}
-                {this.renderThumbnailView()}
+                {this.state.isThumbnailVisible && this.renderThumbnailView()}
             </Modal>
         );
     }
@@ -937,7 +1103,7 @@ export default class ImageGallery extends PureComponent {
     render() {
         return (
             <View style={{zIndex: 99}}>
-                {this.renderStaticImage()}
+                {/* {this.renderStaticImage()} */}
                 {this.state.isVisible && this.renderModal()}
             </View>
         );

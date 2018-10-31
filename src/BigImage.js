@@ -50,7 +50,7 @@ const calculateDistanceBetween2Points = function(p1, p2) {
   return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 };
 
-function Progress({progress}) {
+export function Progress({progress}) {
     return (
         <View style={styles.progressContainer}>
         {
@@ -98,15 +98,15 @@ export default class BigImage extends PureComponent {
       });
     }
 
-    componentWillMount() {
-        this.getImageSize();
-    }
+    // componentWillMount() {
+    //     this.getImageSize();
+    // }
   
-    componentDidUpdate(prevProps) {
-        if (this.props.targetUri !== prevProps.targetUri) {
-            this.getImageSize();
-        }
-    }
+    // componentDidUpdate(prevProps) {
+    //     if (this.props.targetUri !== prevProps.targetUri) {
+    //         this.getImageSize();
+    //     }
+    // }
 
     onStartShouldSetPanResponder = (evt, gestureState) => true;
 
@@ -338,21 +338,21 @@ export default class BigImage extends PureComponent {
         result.right = x + xRange;
         return result;
     }
-  
-    getImageSize = () => {
-        Image.getSize(this.props.targetUri, (w, h) => {
-            this.width = w;
-            this.height = h;
-            this.aspectRatio = w / h;
-            if (this.aspectRatio < SCREEN_ASPECT_RATIO) {
-                this.setInitialScale();
-            }
-        }, () => {
-            this.w = 0;
-            this.h = 0;
-            this.aspectRatio = 0;
-        });
-    }
+
+    // getImageSize = () => {
+    //     Image.getSize(this.props.targetUri, (w, h) => {
+    //         this.width = w;
+    //         this.height = h;
+    //         this.aspectRatio = w / h;
+    //         if (this.aspectRatio < SCREEN_ASPECT_RATIO) {
+    //             this.setInitialScale();
+    //         }
+    //     }, () => {
+    //         this.w = 0;
+    //         this.h = 0;
+    //         this.aspectRatio = 0;
+    //     });
+    // }
 
     /**
      * 设置图片初始缩放，使图片宽度撑满屏幕
@@ -384,10 +384,20 @@ export default class BigImage extends PureComponent {
         }
         return {xRange, yRange};
     }
-  
+
+    onLoadStart = ({nativeEvent}) => {
+        // console.log(nativeEvent)
+        // console.log('load start', this.props.targetUri, this.props.thumbnail, this.props.showStatus);
+    }
+
     onProgress = ({nativeEvent: {loaded, total}}) => {
+        const { showStatus, onProgress } = this.props;
         const progress = loaded / total;
-        this.setState({ progress });
+        if (showStatus < 4) {
+            onProgress && onProgress(progress);
+        } else {
+            this.setState({ progress });
+        }
     }
   
     renderProgress = () => {
@@ -395,8 +405,15 @@ export default class BigImage extends PureComponent {
         return progress !== 1 && <Progress progress={progress}/>;
     }
   
-    onLoad = () => {
+    onLoad = ({nativeEvent}) => {
+        const { showStatus, onLoad, afterShowImage, index } = this.props;
         this.setState({error: false});
+        // if (!thumbnail) {
+        onLoad && onLoad(nativeEvent, index);
+        if (showStatus === 2 && afterShowImage) {
+            afterShowImage();
+        }
+        // }
     }
   
     onLoadEnd = (ev) => {
@@ -404,29 +421,47 @@ export default class BigImage extends PureComponent {
         this.setState({progress: 1});
     }
   
-    onError = ({nativeEvent}) => {
-        if (this.props.targetUri !== 'data:') {
+    onError = (error) => {
+        if (this.props.targetUri !== 'data:' && this.props.showStatus > 1) {
             this.setState({error: true});
         }
     }
   
     render() {
-        const { position, width, height, offsetX, offsetY, imageOpacity, onPress, targetUri, showStatus, resizeMode, opacity } = this.props;
+        const {
+            position,
+            width,
+            height,
+            offsetX,
+            offsetY,
+            imageOpacity,
+            onPress,
+            targetUri,
+            showStatus,
+            resizeMode,
+            opacity,
+            imageScale,
+            containerScale
+        } = this.props;
         const { diffDistance, totalDiffDistance, error, initDiffDistance } = this.state;
         const totalDiff = Animated.add(diffDistance, totalDiffDistance);
         const scale = Animated.add(initDiffDistance, totalDiff).interpolate({
             inputRange: [-1000, -100, 0, 100],
             outputRange: [0.6, 0.6, 1, 1.4]
         });
+
         return (
             <Animated.View
                 style={[styles.animationContainer, { position, width, height, left: offsetX, top: offsetY, opacity: imageOpacity }]}
             >
-                <AnimatedFastImage
-                    source={{uri: targetUri}}
+                <Animated.Image
+                    // targetUri={showStatus > 1 ? targetUri : 'data:'}
+                    // scale={showStatus < 4 ? imageScale : scale}
+                    // offset={this.offset}
+                    source={{uri: showStatus > 1 ? targetUri : 'data:'}}
                     style={[
                         styles.img,
-                        { transform: [{ scale }, ...this.offset.getTranslateTransform()] },
+                        { transform: [{ scale: showStatus === 4 ? scale : imageScale }, ...this.offset.getTranslateTransform()] },
                     ]}
                     onProgress={this.onProgress}
                     onLoadStart={this.onLoadStart}
@@ -435,10 +470,59 @@ export default class BigImage extends PureComponent {
                     onError={this.onError}
                     resizeMode={resizeMode}
                 />
-                {showStatus && !error && this.renderProgress()}
+                {showStatus === 4 && !error && this.renderProgress()}
                 {error && <Image source={require('../static/fail.png')}/>}
             </Animated.View>
-        );
+        )
+    }
+}
+
+export class TransformImage extends PureComponent {
+    render() {
+        const {
+            position,
+            width,
+            height,
+            imageOpacity,
+            targetUri,
+            resizeMode,
+            imageScale,
+            containerScale,
+            offset
+        } = this.props;
+
+        return (
+            <Animated.View
+                style={[
+                    styles.animationContainer,
+                    {
+                        transform: [{scale: containerScale}]
+                    },
+                    {
+                        position,
+                        width,
+                        height,
+                        left: offset.x,
+                        top: offset.y,
+                    }
+                ]}
+            >
+                <Animated.Image
+                    source={{uri: targetUri}}
+                    style={[
+                        styles.img,
+                        { transform: [{ scale: imageScale }] },
+                    ]}
+                    // onProgress={this.onProgress}
+                    // onLoadStart={this.onLoadStart}
+                    // onLoad={this.onLoad}
+                    // onLoadEnd={this.onLoadEnd}
+                    // onError={this.onError}
+                    resizeMode={resizeMode}
+                />
+                {/* {error && <Image source={require('../static/fail.png')}/>} */}
+            </Animated.View>
+        )
     }
 }
 
