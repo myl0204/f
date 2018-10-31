@@ -2,22 +2,23 @@ import React from 'react';
 import { Text, TouchableOpacity, View, Image } from 'react-native';
 import ImageGallery from '../index';
 
-// const urls = [
-//     'http://ww1.sinaimg.cn/large/8f78f96fly1fwp5pzad6ej23402c0u10.jpg',
-//     'http://ww1.sinaimg.cn/large/8f78f96fly1fwp5vvd912j22bc1jme82.jpg',
-//     'http://ww1.sinaimg.cn/large/8f78f96fly1fwp5wokycoj22bc1jmqv5.jpg'
-// ]
-
 const urls = [
-    // 'http://i.imgur.com/XP2BE7q.jpg',
-    // 'http://i.imgur.com/5nltiUd.jpg',
-    // 'http://i.imgur.com/6vOahbP.jpg',
+    'http://ww1.sinaimg.cn/large/8f78f96fly1fwp5pzad6ej23402c0u10.jpg',
+    'http://ww1.sinaimg.cn/large/8f78f96fly1fwp5vvd912j22bc1jme82.jpg',
     'http://ww1.sinaimg.cn/large/8f78f96fly1fwp5wokycoj22bc1jmqv5.jpg'
 ]
 
+// const urls = [
+//     // 'http://i.imgur.com/XP2BE7q.jpg',
+//     // 'http://i.imgur.com/5nltiUd.jpg',
+//     // 'http://i.imgur.com/6vOahbP.jpg',
+//     'http://ww1.sinaimg.cn/large/8f78f96fly1fwp5wokycoj22bc1jmqv5.jpg'
+// ]
+
 const weiboUrls = [
+    'http://ww1.sinaimg.cn/thumbnail/8f78f96fly1fwp5pzad6ej23402c0u10.jpg',
     // 'http://i.imgur.com/XP2BE7q.jpg',
-    // // 'http://ww1.sinaimg.cn/thumbnail/8f78f96fly1fwp5vvd912j22bc1jme82.jpg',
+    'http://ww1.sinaimg.cn/thumbnail/8f78f96fly1fwp5vvd912j22bc1jme82.jpg',
     // 'http://i.imgur.com/5nltiUd.jpg',
     'http://ww1.sinaimg.cn/thumbnail/8f78f96fly1fwp5wokycoj22bc1jmqv5.jpg'
 ]

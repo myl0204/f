@@ -115,6 +115,7 @@ export default class ImageGallery extends PureComponent {
             _urls = urls;
         }
         const _source = _urls.map(uri => ({uri, selected: false}));
+        const originSource = urls.map(uri => ({uri}))
         const initialImage = initialIndex + 1 <= urls.length
             ? initialIndex < 0
                 ? 0
@@ -143,6 +144,7 @@ export default class ImageGallery extends PureComponent {
             renderedImages: [initialImage], // 展现过的图片
             showOnlyCurrent: false,
             source: _source,
+            originSource,
             isThumbnailVisible: false,
             editable: false, // 是否可选择缩略图
             resizeMode: 'contain',
@@ -337,7 +339,7 @@ export default class ImageGallery extends PureComponent {
     resetState = () => {
         const { initialImage, source } = this.state;
         const { initialPage } = this.props;
-        const _source = source.map(uri => ({uri, selected: false}));
+        const _source = source.map(image => ({uri: image.uri, selected: false}));
         this.setState(prev => ({
             renderedImages: [initialImage],
             currentImage: initialImage,
@@ -346,7 +348,8 @@ export default class ImageGallery extends PureComponent {
             position: 'absolute',
             showStatus: GALLERY_SHOW_STATUS_NONE,
             resizeMode: 'contain',
-            progress: 0
+            progress: 0,
+            isVisible: false
         }));
         this.state.offsetX.setValue(0);
         this.state.offsetY.setValue(0);
@@ -357,6 +360,7 @@ export default class ImageGallery extends PureComponent {
         this.isInitialImageLoaded = false;
         this.imageRefs.clear();
         this.imageSizes = [];
+        // this.hide();
     }
 
     show = async () => {
@@ -383,8 +387,8 @@ export default class ImageGallery extends PureComponent {
         const width = SCREEN_WIDTH;
         const height = SCREEN_HEIGHT;
         const { transitionDuration } = this.props;
-        const _transitionDuration = Platform.select({ios: transitionDuration, android: 0});
-        // const _transitionDuration = 5000;
+        // const _transitionDuration = Platform.select({ios: transitionDuration, android: 0});
+        const _transitionDuration = 300;
         this.state.opacity.setValue(0.5);
         this.setState({thumbnailImageShowStatus: true, showStatus: GALLERY_SHOW_STATUS_ANIMATING}, () => {
             Animated.parallel([
@@ -441,12 +445,12 @@ export default class ImageGallery extends PureComponent {
         // this.setState({thumbnailImageShowStatus: false})
         // this.state.offsetY.setValue((SCREEN_HEIGHT - height) / 2);
         this.setState({thumbnailImageShowStatus: false, showStatus: 3}, () => {
-            this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
-            // Animated.spring(this.state.imageScale, {
-            //     toValue: 1,
-            // }).start(() => {
-            //     this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
-            // })
+            // this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
+            Animated.spring(this.state.imageScale, {
+                toValue: 1,
+            }).start(() => {
+                this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
+            })
             // this.setState({showStatus: 4, position: 'relative', scrollContainerBg: 'black'})
         })
         
@@ -526,7 +530,7 @@ export default class ImageGallery extends PureComponent {
 
     afterHideImage = () => {
         const { onHide } = this.props;
-        this.hide();
+        // this.hide();
         this.resetState();
         onHide && onHide();
     }
@@ -546,7 +550,7 @@ export default class ImageGallery extends PureComponent {
      */
 
     onProgress = (progress) => {
-        this.setState({progress})
+        // this.setState({progress})
     }
 
     /**
@@ -857,6 +861,7 @@ export default class ImageGallery extends PureComponent {
                     imageScale={imageScale}
                     index={index}
                     onProgress={this.onProgress}
+                    // test={this.resetState}
                     // initImageSize={this.initImageSize}
                 />
             )
@@ -891,36 +896,40 @@ export default class ImageGallery extends PureComponent {
     
     renderScrollView = () => {
        
-        const { currentImage, opacity, scrollContainerBg, showStatus, initialImage, thumbnailImageShowStatus } = this.state;
+        const { currentImage, opacity, scrollContainerBg, showStatus, initialImage, thumbnailImageShowStatus, originSource } = this.state;
         // const panHandlers = showStatus > GALLERY_SHOW_STATUS_ANIMATING ? this._panResponder.panHandlers : {};
         // const contentOffset = this.getInitialOffset();
         const { initialIndex } = this.props;
-        const _source = this.props.urls.map(uri => ({uri}));
+        // const _source = this.props.urls.map(uri => ({uri}));
+        const containerBackgroundColor = opacity.interpolate(
+            {
+              inputRange: [ 0, 0.2, 0.4, 0.6, 0.8, 1 ],
+              outputRange: [ 'rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, .2)', 'rgba(0, 0, 0, .4)', 'rgba(0, 0, 0, .6)', 'rgba(0, 0, 0, .8)', 'rgba(0, 0, 0, 1)' ]
+            });
         return (
-            <View
-                style={{width: SCREEN_WIDTH, height: SCREEN_HEIGHT}}
+            <Animated.View
+                style={[{width: SCREEN_WIDTH, height: SCREEN_HEIGHT}, { backgroundColor: containerBackgroundColor}]}
                 {...this._panResponder.panHandlers}
             >
                 <ViewPager
                     showStatus={showStatus}
                     currentImage={currentImage}
-                    source={_source}
+                    source={originSource}
                     initialIndex={initialIndex}
-                    opacity={opacity}
                     ref={view => this.scrollInstance = view}
                     scrollContainerBg={scrollContainerBg}
                     renderItem={this.renderImage}
                     onScrollEnd={this.onScrollEnd}
                     imageRefs={this.imageRefs}
-                >
-                    {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && this.renderIndicator()}
-                    {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && this.renderGirdButton()}
+                />
                     {/* 设置一层View，用以接收ViewPager相关panHandler */}
                     {/* {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && <View style={{width: SCREEN_WIDTH, height: SCREEN_HEIGHT, position: 'absolute', zIndex: 20, top: 0, left: 0, opacity: 0, backgroundColor: 'transparent'}}/>} */}
                     {/* {showStatus } */}
-                    {thumbnailImageShowStatus && this.renderAnimatedThumbnail()}
-                </ViewPager>
-            </View>
+                {/* </ViewPager> */}
+                {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && this.renderIndicator()}
+                {showStatus >= GALLERY_SHOW_STATUS_ANIMATING && this.renderGirdButton()}
+                {thumbnailImageShowStatus && this.renderAnimatedThumbnail()}
+            </Animated.View>
         );
     }
 
@@ -966,7 +975,7 @@ export default class ImageGallery extends PureComponent {
 
     renderProgress = () => {
         const { progress } = this.state;
-        return progress !== 100 && <Progress progress={progress}/>
+        // return progress !== 100 && <Progress progress={progress}/>
     }
 
 
@@ -1150,7 +1159,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Platform.select({ios: 50 - STATUS_BAR_HEIGHT, android: 10}),
     alignSelf: 'center',
-    paddingTop: 10
+    paddingTop: 10,
+    zIndex: 30
   },
   indicator: {
     color: 'white',

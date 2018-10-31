@@ -14,6 +14,8 @@ import {
     Easing
 } from 'react-native';
 import FastImage from 'react-native-fast-image';
+import debounce from 'lodash.debounce';
+import * as Progress from 'react-native-progress'
 
 const AnimatedFastImage = Animated.createAnimatedComponent(FastImage);
 
@@ -50,20 +52,20 @@ const calculateDistanceBetween2Points = function(p1, p2) {
   return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 };
 
-export function Progress({progress}) {
-    return (
-        <View style={styles.progressContainer}>
-        {
-        Platform.OS === 'ios'
-            ? (
-            <View style={styles.progressWrapper}>
-                <View style={[styles.progressContent, {width: `${progress * 100}%`}]}/>
-            </View>)
-            : <ActivityIndicator animating={progress < 1} size='large'/>
-        }
-        </View>
-    );
-}
+// export function Progress({progress}) {
+//     return (
+//         <View style={styles.progressContainer}>
+//         {
+//         Platform.OS === 'ios'
+//             ? (
+//             <View style={styles.progressWrapper}>
+//                 <View style={[styles.progressContent, {width: `${progress * 100}%`}]}/>
+//             </View>)
+//             : <ActivityIndicator animating={progress < 1} size='large'/>
+//         }
+//         </View>
+//     );
+// }
 
 export default class BigImage extends PureComponent {
     constructor(props) {
@@ -285,10 +287,14 @@ export default class BigImage extends PureComponent {
      */
 
     onImageTap = () => {
-        const { clearAnimation, onPress } = this.props;
+        this.timer && clearTimeout(this.timer);
+        const { clearAnimation, onPress, showStatus, test } = this.props;
         this.tapCount = 0;
         this.resetImage();
         clearAnimation && clearAnimation();
+        if (showStatus !== 4) {
+            return test && test();
+        }
         onPress && onPress();
     }
 
@@ -396,13 +402,34 @@ export default class BigImage extends PureComponent {
         if (showStatus < 4) {
             onProgress && onProgress(progress);
         } else {
-            this.setState({ progress });
+            this.updateProgress(progress);
+            // debounce(() => {
+            //     console.log('setState');
+            //     this.setState({ progress })
+            // }, 5)
         }
     }
+
+    updateProgress = debounce((progress) => {
+        console.log('update')
+        this.setState({progress})
+    }, 1)
+    // onProgress = debounce(event => {
+    //     event.persist();
+    //     console.log(event.nativeEvent, 'abc')
+    //     // {nativeEvent: {loaded, total}}
+    //     // const { showStatus, onProgress } = this.props;
+    //     // const progress = loaded / total;
+    //     // if (showStatus < 4) {
+    //     //     onProgress && onProgress(progress);
+    //     // } else {
+    //     //     this.setState({ progress });
+    //     // }
+    // }, 50);
   
     renderProgress = () => {
         const { progress } = this.state;
-        return progress !== 1 && <Progress progress={progress}/>;
+        return progress !== 1 && <Progress.Pie progress={progress}/>;
     }
   
     onLoad = ({nativeEvent}) => {
@@ -449,6 +476,8 @@ export default class BigImage extends PureComponent {
             inputRange: [-1000, -100, 0, 100],
             outputRange: [0.6, 0.6, 1, 1.4]
         });
+
+        // console.log('renderBigImage');
 
         return (
             <Animated.View

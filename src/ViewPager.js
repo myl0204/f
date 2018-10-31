@@ -123,7 +123,7 @@ export default class ViewPager extends PureComponent {
         const {
             currentImage,
             source,
-            opacity,
+            // opacity,
             scrollViewRef,
             scrollContainerBg,
             renderItem,
@@ -131,16 +131,16 @@ export default class ViewPager extends PureComponent {
             initialIndex
         } = this.props;
 
-        const containerBackgroundColor = opacity.interpolate(
-            {
-              inputRange: [ 0, 0.2, 0.4, 0.6, 0.8, 1 ],
-              outputRange: [ 'rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, .2)', 'rgba(0, 0, 0, .4)', 'rgba(0, 0, 0, .6)', 'rgba(0, 0, 0, .8)', 'rgba(0, 0, 0, 1)' ]
-            });
+        // const containerBackgroundColor = opacity.interpolate(
+        //     {
+        //       inputRange: [ 0, 0.2, 0.4, 0.6, 0.8, 1 ],
+        //       outputRange: [ 'rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, .2)', 'rgba(0, 0, 0, .4)', 'rgba(0, 0, 0, .6)', 'rgba(0, 0, 0, .8)', 'rgba(0, 0, 0, 1)' ]
+        //     });
         
-
         return (
             <Animated.View
-                style={[styles.scrollContainer, { backgroundColor: containerBackgroundColor}]}
+                // style={[styles.scrollContainer, { backgroundColor: containerBackgroundColor}]}
+                style={[styles.scrollContainer]}
             >
                 <FlatList
                     scrollEnabled={false}
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
       width: SCREEN_WIDTH,
       height: SCREEN_HEIGHT,
     //   position: 'absolute',
-      zIndex: 99,
+      zIndex: 30,
     }
 });
 
